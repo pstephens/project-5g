@@ -1,0 +1,19 @@
+cargo-features = ["strip"]
+
+[package]
+name = "atcmd"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+opt-level = 'z'
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[dependencies]
+clap = "3.0.0-beta.4"
+serialport = "4.0.1"

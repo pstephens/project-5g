@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+### Collect modem and network data from the Rooter/GoldenOrb router
+### AT Commands are configured for a Quectel RM502Q modem
+
 import argparse
 from datetime import datetime
 import os

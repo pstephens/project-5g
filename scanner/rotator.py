@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+### Control a Green Heron RT-21 Rotator Controller using the serial port
+
 import argparse
 import re
 import serial

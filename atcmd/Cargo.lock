@@ -37,6 +37,8 @@ name = "atcmd"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "lazy_static",
+ "regex",
  "serialport",
 ]
 

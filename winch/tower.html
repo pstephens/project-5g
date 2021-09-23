@@ -1,0 +1,392 @@
+<html>
+<head>
+    <title>Tower Tension Calculations</title>
+    <style>
+        body { background-color: #F0F0F0; margin: 3em; font-family:Arial, Helvetica, sans-serif; }
+        table.params { float: left; }
+        table.params tr td:nth-child(3) { text-align: right; width: 5em; }
+        table.params tr td:nth-child(2) input { width: 300px; }
+        table.calcs { float: left; }
+        table.calcs tr td:nth-child(2) { text-align: right; }
+        .chart { width: 500px; height: 500px; float: left; margin: 10px; }
+        .diagram { border: 2px black; background: #FFF; float: left; clear: both; margin: 10px; }
+    </style>
+    <script src="https://code.highcharts.com/8.0.4/highcharts.js"></script>
+    <script>
+        function range(start, count, step) {
+            const values = [];
+            var x, y;
+            for(x = start, y = 0; y < count; x += step, y++) {
+                values.push(x);
+            }
+            return values;
+        }
+
+        function to_degrees(radians) {
+            return radians * 180 / Math.PI;
+        }
+
+        function to_radians(degrees) {
+            return degrees * Math.PI / 180;
+        }
+
+        function get_params() {
+            const get = id => {
+                const v = parseFloat(document.getElementById(id).value);
+                const el = document.getElementById(id + "_label");
+                if(el) {
+                    el.innerText = v.toFixed(2);
+                }
+                return v;
+            }
+
+            return {
+                angle: get("angle"),
+                gin_pole_height: get("gin_pole_height"),
+                gin_pole_offset: get("gin_pole_offset"),
+                tower_height: get("tower_height"),
+                tower_width: get("tower_width"),
+                tower_attachment: get("tower_attachment"),
+                weight: get("weight"),
+                center_of_mass: get("com"), // height on the tower
+            };
+        }
+
+        function calc_for_angle(params) {
+            const angle = params.angle
+            const towerWidthFt = params.tower_width / 12;
+            const angleR = to_radians(angle);
+            const ginPoleTopP = { X: 0, Y: params.gin_pole_height};
+            const ginPoleBaseP = { X: 0, Y: 0};
+            const towerHingeBaseP = {X: params.gin_pole_offset, Y: 0};
+
+            const towerOffHX = Math.cos(angleR) * params.tower_height;
+            const towerOffHY = Math.sin(angleR) * params.tower_height;
+            const towerOffWX = Math.cos(Math.PI/2 + angleR) * towerWidthFt;
+            const towerOffWY = Math.sin(Math.PI/2 + angleR) * towerWidthFt;
+            const tower = [{X: towerHingeBaseP.X, Y: towerHingeBaseP.Y},
+                           {X: towerHingeBaseP.X + towerOffHX,
+                            Y: towerHingeBaseP.Y + towerOffHY},
+                           {X: towerHingeBaseP.X + towerOffHX + towerOffWX,
+                            Y: towerHingeBaseP.Y + towerOffHY + towerOffWY},
+                           {X: towerHingeBaseP.X + towerOffWX,
+                            Y: towerHingeBaseP.Y + towerOffWY}];
+            const angleCom = Math.atan((towerWidthFt / 2) / params.center_of_mass);
+            const distanceToCom = Math.sqrt(towerWidthFt * towerWidthFt / 4 + params.center_of_mass * params.center_of_mass);
+            const comX = towerHingeBaseP.X + Math.cos(angleCom + angleR) * distanceToCom;
+            const comY = towerHingeBaseP.Y + Math.sin(angleCom + angleR) * distanceToCom;
+            const centerOfMassV = { X: comX, Y: comY,
+                                    DX: 0, DY: -1,
+                                    style: "rgba(200, 0, 0, 0.5)",
+                                    label: "gravity: " + params.weight.toFixed(2) + " lbs",
+                                    labelX: 3, labelY: 8};
+            const gravityTorque = Math.cos(angleR + angleCom) * distanceToCom * params.weight;
+            const gravityTorqueV = { X: comX, Y: comY,
+                                     DX: Math.cos(angleR + angleCom - Math.PI / 2), DY: Math.sin(angleR + angleCom - Math.PI / 2),
+                                     style: "rgba(0, 100, 200, 0.5)",
+                                     label: "gravity torque: " + gravityTorque.toFixed(2) + " ft*lbs",
+                                     labelX: 3, labelY: 4 };
+            const angleToTowerAttach = Math.atan(towerWidthFt / params.tower_attachment);
+            const distanceToTowerAttach = Math.sqrt(Math.pow(towerWidthFt, 2) + Math.pow(params.tower_attachment, 2));
+            const towerAttachX = params.gin_pole_offset + Math.cos(angleR + angleToTowerAttach) * distanceToTowerAttach;
+            const towerAttachY = Math.sin(angleR + angleToTowerAttach) * distanceToTowerAttach;
+            const angleB = Math.atan((params.gin_pole_height - towerAttachY) / towerAttachX);
+            const tension = gravityTorque / (distanceToTowerAttach * Math.cos(Math.PI / 2 - angleB - angleToTowerAttach - angleR));
+            const tensionTorque = Math.sin(angleB + angleToTowerAttach + angleR) * tension * distanceToTowerAttach;
+
+            const tensionTorqueV = { X: towerAttachX, Y: towerAttachY,
+                                     DX: Math.cos(Math.PI / 2 + angleToTowerAttach + angleR),
+                                     DY: Math.sin(Math.PI / 2 + angleToTowerAttach + angleR),
+                                     style: "rgba(0, 100, 200, 0.5)",
+                                     label: "tension torque: " + tensionTorque.toFixed(2) + " ft*lbs",
+                                     labelX: 3, labelY: -4};
+            const towerAttachP = { X: towerAttachX, Y: towerAttachY };
+            const cableLength = Math.sqrt(Math.pow(ginPoleTopP.X - towerAttachX, 2) + Math.pow(ginPoleTopP.Y - towerAttachY, 2));
+            const tensionV = { X: towerAttachX, Y: towerAttachY,
+                               DX: (ginPoleTopP.X - towerAttachX) / cableLength,
+                               DY: (ginPoleTopP.Y - towerAttachY) / cableLength,
+                               style: "rgba(200, 150, 0, 0.5)",
+                               label: "tension: " + tension.toFixed(2) + " lbs",
+                               labelX: 3, labelY: -8 };
+
+            const towerAttachPerpTension = Math.sin(angleB + angleR) * tension;
+            const towerAttachParaTension = Math.cos(angleB + angleR) * tension;
+
+            const ginPoleAttachAngle = Math.acos((towerAttachX - ginPoleTopP.X) / cableLength);
+            const ginPoleAttachXTension = Math.cos(ginPoleAttachAngle) * tension;
+            const ginPoleAttachYTension = Math.sin(ginPoleAttachAngle) * tension;
+            const ginPoleTorque = ginPoleAttachXTension * params.gin_pole_height;
+
+            const cableAngle = angleB + angleR;
+            const hoistRingInlineForce = tension /  Math.sin(Math.PI/2 - cableAngle);
+
+            return {
+                angle,
+                ginPoleTopP,
+                ginPoleBaseP,
+                towerHingeBaseP,
+                tower,
+                centerOfMassV,
+                gravityTorque,
+                gravityTorqueV,
+                tensionTorqueV,
+                tension,
+                tensionTorque,
+                towerAttachP,
+                tensionV,
+                cableLength,
+                towerAttachPerpTension,
+                towerAttachParaTension,
+                ginPoleAttachAngle,
+                ginPoleAttachXTension,
+                ginPoleAttachYTension,
+                ginPoleTorque,
+                cableAngle,
+                hoistRingInlineForce
+            };
+        }
+
+        function renderV(vector, ctx) {
+            const factor = 4.0;
+            const factor2 = 1.5;
+
+            const X1 = vector.X + vector.DX * factor;
+            const Y1 = vector.Y + vector.DY * factor;
+            const DX = vector.DX;
+            const DY = vector.DY;
+
+            ctx.save();
+            ctx.strokeStyle = ctx.fillStyle = vector.style || "rgba(200,0,0,0.5";
+            ctx.translate(X1, Y1);
+
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.rotate(Math.PI * 0.75);
+            ctx.lineTo(DX * factor2, DY * factor2);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.rotate(Math.PI * 0.25);
+            ctx.lineTo(DX * factor, DY * factor);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.rotate(Math.PI * 0.25);
+            ctx.lineTo(DX * factor2, DY * factor2);
+            ctx.stroke();
+
+            if(vector.label) {
+                ctx.rotate(-Math.PI * 0.25);
+                ctx.translate(DX * factor, DY * factor);
+                ctx.rotate(Math.PI);
+                ctx.scale(1, -1);
+                ctx.fillText(vector.label, vector.labelX, vector.labelY);
+            }
+
+            ctx.restore();
+        }
+
+        function render(v) {
+            const c = document.getElementById("tower");
+            const ctx = c.getContext('2d');
+            ctx.save();
+            ctx.clearRect(0, 0, c.width, c.height);
+            ctx.translate(0, 450);
+            ctx.scale(5, -5);
+            ctx.font = "bold 3.5px sans-serif";
+            ctx.lineWidth = 0.25;
+
+            // Draw Gin Pole and offset:
+            ctx.strokeStyle = "rgb(0, 0, 150)";
+            ctx.beginPath();
+            ctx.moveTo(v.ginPoleTopP.X, v.ginPoleTopP.Y);
+            ctx.lineTo(v.ginPoleBaseP.X, v.ginPoleBaseP.Y);
+            ctx.lineTo(v.towerHingeBaseP.X, v.towerHingeBaseP.Y);
+            ctx.stroke();
+
+            // Draw cable
+            ctx.strokeStyle = "rgb(200, 150, 0)";
+            ctx.beginPath();
+            ctx.moveTo(v.ginPoleTopP.X, v.ginPoleTopP.Y);
+            ctx.lineTo(v.towerAttachP.X, v.towerAttachP.Y);
+            ctx.stroke();
+
+            // Draw tower
+            ctx.strokeStyle = "rgb(0, 150, 0)";
+            ctx.beginPath();
+            ctx.moveTo(v.tower[0].X, v.tower[0].Y);
+            ctx.lineTo(v.tower[1].X, v.tower[1].Y);
+            ctx.lineTo(v.tower[2].X, v.tower[2].Y);
+            ctx.lineTo(v.tower[3].X, v.tower[3].Y);
+            ctx.closePath();
+            ctx.stroke();
+
+            renderV(v.centerOfMassV, ctx);
+            renderV(v.gravityTorqueV, ctx);
+            renderV(v.tensionTorqueV, ctx);
+            renderV(v.tensionV, ctx);
+
+            ctx.restore();
+        }
+
+        function calc() {
+            const p = get_params();
+            const v = calc_for_angle(p);
+            const v0 = calc_for_angle({ ...p, angle: 0 });
+            const v90 = calc_for_angle({ ...p, angle: 90 });
+
+            const vrange = range(0, 91, 1).map(a => calc_for_angle({...p, angle: a}));
+
+            const set = (id, label) => document.getElementById(id).innerText = label;
+            set("cable_length", (v0.cableLength + p.gin_pole_height).toFixed(2));
+            set("cable_delta", (v0.cableLength - v90.cableLength).toFixed(2));
+            set("tower_tip", v.tower[1].Y.toFixed(2));
+            set("tower_attach_perp_tension", v.towerAttachPerpTension.toFixed(2));
+            set("tower_attach_para_tension", v.towerAttachParaTension.toFixed(2));
+            set("gin_pole_attach_x_tension", v.ginPoleAttachXTension.toFixed(2));
+            set("gin_pole_attach_y_tension", v.ginPoleAttachYTension.toFixed(2));
+            set("gin_pole_torque", v.ginPoleTorque.toFixed(2));
+            set("cable_angle", (v.cableAngle / Math.PI * 180).toFixed(2));
+
+            updateChartData('tension_vs_angle', vrange.map(v => ({x: v.angle, y: v.tension, marker: {enabled: v.angle === p.angle}})), 0);
+            updateChartData('tension_vs_angle', vrange.map(v => ({x: v.angle, y: v.towerAttachParaTension, marker: {enabled: v.angle === p.angle}})), 1);
+            updateChartData('tension_vs_angle', vrange.map(v => ({x: v.angle, y: v.towerAttachPerpTension, marker: {enabled: v.angle === p.angle}})), 2);
+            updateChartData('tension_vs_angle', vrange.map(v => ({x: v.angle, y: v.ginPoleAttachYTension, marker: {enabled: v.angle === p.angle}})), 3);
+            updateChartData('tension_vs_angle', vrange.map(v => ({x: v.angle, y: v.ginPoleAttachXTension, marker: {enabled: v.angle === p.angle}})), 4);
+
+            updateChartData('tension_vs_length', range(5, p.tower_height - 4, 1).map(a => ({x: a, y: calc_for_angle({...p, tower_attachment: a}).tension, marker: {enabled: a === p.tower_attachment}})), 0);
+            updateChartData('tension_vs_length', range(Math.ceil(p.tower_width / 24), 50 + 1, 1).map(o => ({x: o, y: calc_for_angle({...p, gin_pole_offset: o}).tension, marker: {enabled: o == p.gin_pole_offset}})), 1);
+            updateChartData('tension_vs_length', range(1, 50, 1).map(h => ({x: h, y: calc_for_angle({...p, gin_pole_height: h}).tension, marker: {enabled: h === p.gin_pole_height}})), 2);
+
+            updateChartData('angle_vs_angle', vrange.map(v => ({x: v.angle, y: v.cableAngle / Math.PI * 180, marker: {enabled: v.angle === p.angle}})), 0);
+            updateChartData('angle_vs_angle', vrange.map(v => ({x: v.angle, y: v.hoistRingInlineForce, marker: {enabled: v.angle === p.angle}})), 1);
+
+            redrawCharts();
+
+            render(v);
+        }
+
+        var charts = {};
+        function configureChart(id, props) {
+            props = props || {};
+            const series = props.series || [{title: ""}];
+            const yAxis = [{title:{text: props.yAxisLabel + " (" + props.yAxisUnit + ")"}}];
+            if(props.yAxisLabel2) {
+                yAxis.push({title:{text: props.yAxisLabel2 + " (" + props.yAxisUnit2 + ")"}, opposite: true});
+            }
+            charts[id] = Highcharts.chart(id, {
+                xAxis: [{title:{text: props.xAxisLabel + " (" + props.xAxisUnit + ")"}}],
+                yAxis: yAxis,
+                title: {text: props.title || "Untitled"},
+                legend: { enabled: series.length > 1 },
+                series: series.map(s => ({
+                    type: 'scatter',
+                    lineWidth: 1,
+                    //marker: { enabled: false },
+                    data: [],
+                    name: s.title || "",
+                    tooltip: {
+                        headerFormat: series.length > 1 ? '<span style="color:{point.color}">●</span> <span style="font-size: 10px"> {series.name}</span><br/>' : "",
+                        pointFormat: props.xAxisLabel + ": <b>{point.x}</b> " + props.xAxisUnit + "<br/>" +
+                            (s.yAxis === 1 ? props.yAxisLabel2 : props.yAxisLabel) +
+                            ": <b>{point.y}</b> " +
+                            (s.yAxis === 1 ? props.yAxisUnit2 : props.yAxisUnit),
+                        valueDecimals: 2,
+                    },
+                    yAxis: s.yAxis
+                }))
+            });
+        }
+
+        function updateChartData(id, data, series) {
+            series = series || 0;
+            charts[id].series[series].update({data: data, });
+        }
+
+        function redrawCharts() {
+            Object.values(charts).forEach(ch => ch.redraw(false));
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            ["gin_pole_height",
+             "gin_pole_offset",
+             "tower_height",
+             "tower_width",
+             "tower_attachment",
+             "weight",
+             "com",
+             "angle"].forEach(id => document.getElementById(id).addEventListener("input", calc));
+
+            Highcharts.setOptions({lang:{thousandsSep: ','}});
+
+            configureChart('tension_vs_angle', {
+                title: "Tension vs. Angle",
+                xAxisLabel: "Angle", xAxisUnit: "degrees",
+                yAxisLabel: "Tension", yAxisUnit: "lbs",
+                series: [
+                    { title: "Cable" },
+                    { title: "Tower Attach Parallel" },
+                    { title: "Tower Attach Perpendicular" },
+                    { title: "Gin Pole Parallel" },
+                    { title: "Gin Pole Perpendicular" }
+                ]});
+
+            configureChart("tension_vs_length", {
+                title: "Tension vs. Length",
+                xAxisLabel: "Length", xAxisUnit: "ft",
+                yAxisLabel: "Tension", yAxisUnit: "lbs",
+                series: [
+                    { title: "Attachment to Tower From Base" },
+                    { title: "Gin Pole Offset From Base" },
+                    { title: "Gin Pole Height" }]});
+
+            configureChart("angle_vs_angle", {
+                title: "Cable Angle vs. Angle",
+                xAxisLabel: "Angle", xAxisUnit: "degrees",
+                yAxisLabel: "Angle", yAxisUnit: "degrees",
+                yAxisLabel2: "Force", yAxisUnit2: "lbs",
+                series: [
+                    { title: "Cable Angle to Tower" },
+                    { title: "Hoist Ring Force", yAxis: 1}]});
+
+            calc();
+        });
+    </script>
+</head>
+<body>
+    <table class="params">
+        <tr><td>Gin Pole Height</td><td><input id=gin_pole_height type=range min=1 max=50 step=1 value=14 /></td><td id=gin_pole_height_label></td><td>ft</td></tr>
+        <tr><td>Tower Base Offset from Gin Pole</td><td><input id=gin_pole_offset type=range min=0 max=50 step=0.8333333333 value=3.333333333333 /></td><td id=gin_pole_offset_label></td><td>ft</td></tr>
+        <tr><td>Tower Height</td><td><input id=tower_height type=range min=20 max=100 step=1 value="70" /></td><td id=tower_height_label></td><td>ft</td></tr>
+        <tr><td>Tower Width</td><td><input id=tower_width type=range min=8 max=48 step=1 value=30 /></td><td id=tower_width_label></td><td>inches</td></tr>
+        <tr><td>Attachment To Tower From Base</td><td><input id=tower_attachment type=range min=5 max=100 step=1 value=30 /></td><td id=tower_attachment_label></td><td>ft</td></tr>
+        <tr><td>Tower Weight</td><td><input id=weight type=range min=100 max=1000 step=1 value=365 /></td><td id=weight_label></td><td>lbs</td></tr>
+        <tr><td>Tower Center of Mass From Base</td><td><input id=com type=range min=10 max=90 step=1 value=34 /></td><td id=com_label></td><td>ft</td></tr>
+        <tr><td>Tower Angle</td><td><input id=angle type=range min=0 max=90 value=45 step=1 /></td><td id=angle_label></td><td>degrees</td></tr>
+    </table>
+
+    <table class="calcs">
+        <tr><td>Cable Length to Gin Pole Base</td><td id=cable_length></td><td>ft</td></tr>
+        <tr><td>Cable Delta (Min to Max Length)</td><td id=cable_delta></td><td>ft</td></tr>
+        <tr><td>Cable to Tower Angle</td><td id=cable_angle></td><td>deg</td></tr>
+        <tr><td>Height of Tower Tip</td><td id=tower_tip></td><td>ft</td></tr>
+        <tr><td>Tower Attach Perpendicular Tension</td><td id=tower_attach_perp_tension></td><td>lbs</td></tr>
+        <tr><td>Tower Attach Parallel Tension</td><td id=tower_attach_para_tension></td><td>lbs</td></tr>
+        <tr><td>Gin Pole Attach Perpendicular Tension</td><td id=gin_pole_attach_x_tension></td><td>lbs</td></tr>
+        <tr><td>Gin Pole Attach Parallel Tension</td><td id=gin_pole_attach_y_tension></td><td>lbs</td></tr>
+        <tr><td>Gin Pole Torque</td><td id=gin_pole_torque></td><td>ft*lbs</td></tr>
+    </table>
+
+    <canvas id=tower width=700 height=500 class="diagram">
+    </canvas>
+
+    <div id=tension_vs_angle class="chart"></div>
+
+    <div id=tension_vs_length class="chart"></div>
+
+    <div id=angle_vs_angle class=chart></div>
+
+</body>
+</html>

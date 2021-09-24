@@ -36,7 +36,7 @@ FIELDS = ["Deg", "Time",
     # AT+QENDC
     "5G Icon",
     # Ping stats
-    "Ping Pkt Loss", "Ping Min", "Ping Max", "Ping Avg", "Ping Jitter"
+    "Ping Pkt Loss", "Ping Min", "Ping Max", "Ping Avg", "Ping Jitter", "Ping Samples", "Ping Cnt"
     ]
 
 SECTION_PATT = re.compile(r"^=+$")
@@ -66,7 +66,7 @@ COPS_PATT = re.compile(r"^\d+:\s*\+COPS:\s*\d+,\d+,\"([^\"]+)\",(\d+)")
 QENDC_PATT = re.compile(r"^\d+:\s*\+QENDC:\s*\d+,\d+,\d+,(\d+)")
 
 PING_1_PATT = re.compile(r".*bytes from.*time=([0-9.]+) ms")
-PING_2_PATT = re.compile(r".* (\d+)% packet loss.*")
+PING_2_PATT = re.compile(r".*(\d+) packets transmitted.* (\d+)% packet loss.*")
 
 
 def check_patt(line, patt, acc, fields):
@@ -159,7 +159,7 @@ def process_section(acc, lines):
             check_patt(line, CREG_PATT, acc, [("Reg State", map_creg_state)]) or
             check_patt(line, COPS_PATT, acc, ["Oper", ("AcT", map_act_state)]) or
             check_patt(line, QENDC_PATT, acc, [("5G Icon", lambda v: int(v) == 1)]) or
-            check_patt(line, PING_2_PATT, acc, [("Ping Pkt Loss", int)])
+            check_patt(line, PING_2_PATT, acc, [("Ping Cnt", int), ("Ping Pkt Loss", int)])
             )
 
         ca_obj = {}
@@ -193,6 +193,7 @@ def process_section(acc, lines):
             ping_jitter = ping_jitter + abs(ping[i] - ping[i - 1])
     acc["Ping Min"] = ping_min
     acc["Ping Max"] = ping_max
+    acc["Ping Samples"] = ping
     if len(ping) > 0:
         acc["Ping Avg"] = ping_sum / len(ping)
     else:
@@ -214,7 +215,7 @@ def main(args):
     args = parser.parse_args(args)
 
     writer= OrderedDict((field, None) for field in FIELDS)
-    
+
     section = []
     for line in sys.stdin:
         if SECTION_PATT.match(line):

@@ -15,43 +15,84 @@ def load_data(f):
 
 def Deg(r):
     return r["Deg"]
+n
 
-
-def Field(name):
+def Values(path):
+    parts = [x for x in path.split(".") if x]
+    def g(r, i):
+        rtype = type(r)
+        if rtype is list:
+            for x in r:
+                for y in g(x, i):
+                    yield y
+        elif rtype is int or rtype is float:
+            if i == len(parts):
+                yield r
+        elif rtype is dict:
+            if i < len(parts):
+                for x in g(r.get(parts[i]), i + 1):
+                    yield x
+        elif r is None:
+            return
+        else:
+            raise ValueError(f"Unexpected type {rtype} encountered during traversial of path {path}")
     def f(r):
-        return r[name]
+        for x in g(r, 0):
+            yield x
     return f
 
 
+def get_value_by_paths(data, path):
+    if type(path) is list:
+        return [list(Values(p)(data)) for p in path]
+    else:
+        return list(Values(path)(data))
+
+
 # group on Deg
-def arearange_data(data, sample_from_group):
+def scatter_data(data, path, agg):
     output = []
     for k, g in itertools.groupby(data, Deg):
-        samples = list(sample_from_group(list(g)))
-        if len(samples) > 0:
-            output.append({
-                "x": k,
-                "low": min(samples),
-                "high": max(samples)
-            })
+        samples = get_value_by_paths(list(g), path)
+        output.append({
+            "x": k,
+            "y": agg(samples)
+        })
     return json.dumps(output)
 
 
-def scatter_data(data, sample_from_row, agg):
-    output = []
-    for k, g in itertools.groupby(data, Deg):
-        samples =  list(itertools.chain.from_iterable([sample_from_row(r) for r in list(g)]))
-        if len(samples) > 0:
-            output.append({
-                "x": k,
-                "y": agg(samples)
-            })
-        else:
-            output.append({
-                "x": k,
-                "y": None
-            })
-    return json.dumps(output)
+def p(factor):
+    def f(samples):
+        if len(samples) < 0:
+            return None
+
+        samples.sort()
+        return samples[int(round(max(0, min(len(samples) - 1, len(samples) * factor - 1))))]
+    return f
+
+
+def agg_min(samples):
+    if len(samples) < 0:
+        return None
+    else:
+        return min(samples)
+
+
+def agg_max(samples):
+    if len(samples) < 0:
+        return None
+    else:
+        return max(samples)
+
+
+def agg_ping_loss(samples):
+    sent, recv = samples
+    sent = sum(sent)
+    recv = len(recv)
+    if sent < 1:
+        return None
+    else:
+        return (sent - recv)/recv*100
 
 
 def write_html(f, data):
@@ -63,37 +104,106 @@ def write_html(f, data):
 <script src="https://code.highcharts.com/highcharts-more.js"></script>
 
 <body>
-<div id="container" style="width: 1000px; height: 1000px; margin: 0 auto"></div>
+<div id="container" style="width: 2000px; height: 1000px; margin: 0 auto"></div>
 <script>
 Highcharts.chart("container", {{
     chart: {{
-        polar: true
+        type: "scatter"
     }},
     yAxis: [{{
         title: {{ text: "Elapsed (ms)"}},
         max: 500
+    }},
+    {{
+        title: {{ text: "Percent"}},
+        max: 100
+    }},
+    {{
+        title: {{ text: "RSRP (dBm)"}},
+        max: -44,
+        min: -140
+    }},
+    {{
+        title: {{ text: "RSRQ (dBm)"}},
+        max: -3,
+        min: -20
+    }},
+    {{
+        title: {{ text: "SINR (db)"}},
+        max: 30,
+        min: -20
     }}],
     series: [{{
         type: "scatter",
         name: "Ping Min",
         yAxis: 0,
         lineWidth: 2,
-        data: {scatter_data(data, Field("Ping Samples"), min)}
+        data: {scatter_data(data, "Ping Samples", agg_min)}
     }},
     {{
         type: "scatter",
-        name: "Ping Avg",
+        name: "Ping P90",
         yAxis: 0,
         lineWidth: 2,
-        data: {scatter_data(data, Field("Ping Samples"), lambda lst: sum(lst) / len(lst))}
+        data: {scatter_data(data, "Ping Samples", p(0.90))}
     }},
     {{
         type: "scatter",
         name: "Ping Max",
         yAxis: 0,
         lineWidth: 2,
-        data: {scatter_data(data, Field("Ping Samples"), max)}
-    }}]
+        data: {scatter_data(data, "Ping Samples", agg_max)}
+    }},
+    {{
+        type: "scatter",
+        name: "Ping Loss",
+        yAxis: 1,
+        lineWidth: 2,
+        data: {scatter_data(data, ["Ping Cnt", "Ping Samples"], agg_ping_loss)}
+    }},
+    {{
+        type: "scatter",
+        name: "LTE RSRP",
+        yAxis: 2,
+        lineWidth: 2,
+        data: {scatter_data(data, "SC LTE RSRP", p(0.90))}
+    }},
+    {{
+        type: "scatter",
+        name: "NSA RSRP",
+        yAxis: 2,
+        lineWidth: 2,
+        data: {scatter_data(data, "SC NSA RSRP", p(0.90))}
+    }},
+    {{
+        type: "scatter",
+        name: "LTE RSRQ",
+        yAxis: 3,
+        lineWidth: 2,
+        data: {scatter_data(data, "SC LTE RSRQ", p(0.90))}
+    }},
+    {{
+        type: "scatter",
+        name: "NSA RSRQ",
+        yAxis: 3,
+        lineWidth: 2,
+        data: {scatter_data(data, "SC NSA RSRQ", p(0.90))}
+    }},
+    {{
+        type: "scatter",
+        name: "LTE SINR",
+        yAxis: 4,
+        lineWidth: 2,
+        data: {scatter_data(data, "SC LTE SINR", p(0.90))}
+    }},
+    {{
+        type: "scatter",
+        name: "NSA SINR",
+        yAxis: 4,
+        lineWidth: 2,
+        data: {scatter_data(data, "SC NSA SINR", p(0.90))}
+    }}
+    ]
 }});
 </script>
 </body>
